@@ -205,7 +205,7 @@ def cmd_paper_trade(args):
 
 
 def cmd_arb_scan(args):
-    """Run the binary arbitrage scanner on Bitcoin short-duration markets."""
+    """Run the binary arbitrage scanner on Bitcoin short-duration markets (REST polling)."""
     client = PolymarketClient()
 
     scanner = ArbScanner(
@@ -222,6 +222,27 @@ def cmd_arb_scan(args):
     scanner.run_loop(max_iterations=args.max_cycles)
 
 
+def cmd_arb_scan_ws(args):
+    """Run the real-time WebSocket arbitrage scanner (sub-second reaction)."""
+    from polymarket_trader.engine.arb_scanner_ws import RealtimeArbScanner
+
+    client = PolymarketClient()
+
+    scanner = RealtimeArbScanner(
+        client=client,
+        starting_balance=args.balance,
+        min_edge_cents=args.min_edge,
+        position_size=args.position_size,
+        max_concurrent_arbs=args.max_arbs,
+        max_minutes_to_expiry=args.max_expiry,
+        market_refresh_interval=args.market_refresh,
+        settlement_check_interval=args.settle_check,
+        save_path=args.save_file,
+    )
+
+    scanner.run_sync(max_duration=args.max_duration)
+
+
 def cmd_list_strategies(args):
     """List available strategies."""
     print("\nAvailable strategies:\n")
@@ -236,7 +257,9 @@ def cmd_list_strategies(args):
     print("Use --strategy <name> with backtest or paper-trade commands.")
     print("Each strategy has tunable parameters via --param key=value.")
     print()
-    print("For the dedicated Bitcoin arb scanner, use the 'arb-scan' command.\n")
+    print("For Bitcoin arb scanning:")
+    print("  arb-scan       REST polling (simpler, ~2s latency)")
+    print("  arb-scan-ws    WebSocket streaming (sub-second, recommended)\n")
     print("Example parameters:")
     print("  threshold:       buy_below=0.3 sell_above=0.7 position_size=0.1")
     print("  momentum:        short_window=5 long_window=20 min_trend_strength=0.02")
@@ -296,8 +319,11 @@ Examples:
   # Paper trade with live data
   %(prog)s paper-trade --strategy mean_reversion --balance 1000 --condition-ids <id1> <id2>
 
-  # Scan for Bitcoin binary arbitrage (YES+NO < $1.00)
+  # Scan for Bitcoin binary arbitrage - REST polling (simpler)
   %(prog)s arb-scan --balance 5000 --min-edge 0.5 --position-size 200
+
+  # Scan for Bitcoin binary arbitrage - WebSocket (fastest, sub-second)
+  %(prog)s arb-scan-ws --balance 5000 --min-edge 0.5 --position-size 200
 """,
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -356,10 +382,26 @@ Examples:
     p_arb.add_argument("--position-size", type=float, default=100.0, help="Dollars per arb opportunity")
     p_arb.add_argument("--max-arbs", type=int, default=20, help="Max concurrent arb positions")
     p_arb.add_argument("--max-expiry", type=int, default=15, help="Max minutes to market expiry")
-    p_arb.add_argument("--poll-interval", type=int, default=10, help="Seconds between scans")
+    p_arb.add_argument("--poll-interval", type=int, default=2, help="Seconds between scans (min ~1s, /book allows 30req/s)")
     p_arb.add_argument("--max-cycles", type=int, default=None, help="Max scan cycles (None=infinite)")
     p_arb.add_argument("--save-file", default=None, help="File to save portfolio state")
     p_arb.set_defaults(func=cmd_arb_scan)
+
+    # ── arb-scan-ws ──
+    p_arb_ws = subparsers.add_parser(
+        "arb-scan-ws",
+        help="Real-time WebSocket arb scanner (sub-second, recommended)",
+    )
+    p_arb_ws.add_argument("--balance", type=float, default=1000.0, help="Starting paper balance (USDC)")
+    p_arb_ws.add_argument("--min-edge", type=float, default=0.5, help="Minimum edge in cents (default 0.5)")
+    p_arb_ws.add_argument("--position-size", type=float, default=100.0, help="Dollars per arb opportunity")
+    p_arb_ws.add_argument("--max-arbs", type=int, default=20, help="Max concurrent arb positions")
+    p_arb_ws.add_argument("--max-expiry", type=int, default=15, help="Max minutes to market expiry")
+    p_arb_ws.add_argument("--market-refresh", type=int, default=30, help="Seconds between market discovery scans")
+    p_arb_ws.add_argument("--settle-check", type=int, default=15, help="Seconds between settlement checks")
+    p_arb_ws.add_argument("--max-duration", type=int, default=None, help="Stop after N seconds (None=infinite)")
+    p_arb_ws.add_argument("--save-file", default=None, help="File to save portfolio state")
+    p_arb_ws.set_defaults(func=cmd_arb_scan_ws)
 
     # ── strategies ──
     p_strat = subparsers.add_parser("strategies", help="List available strategies")

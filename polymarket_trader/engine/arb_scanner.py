@@ -119,7 +119,7 @@ class ArbScanner:
         position_size: Dollar amount per arb opportunity.
         max_concurrent_arbs: Max simultaneous arb positions.
         max_minutes_to_expiry: Only trade markets expiring within this window.
-        poll_interval: Seconds between scan cycles.
+        poll_interval: Seconds between scan cycles (min ~1s; /book allows 300req/10s).
         save_path: File path to persist portfolio state.
     """
 
@@ -131,7 +131,7 @@ class ArbScanner:
         position_size: float = 100.0,
         max_concurrent_arbs: int = 20,
         max_minutes_to_expiry: int = 15,
-        poll_interval: int = 10,
+        poll_interval: int = 2,
         save_path: Optional[str] = None,
     ):
         self.client = client or PolymarketClient()
