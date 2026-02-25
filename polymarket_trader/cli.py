@@ -4,8 +4,10 @@ import argparse
 import sys
 
 from polymarket_trader.api.client import PolymarketClient
+from polymarket_trader.engine.arb_scanner import ArbScanner
 from polymarket_trader.engine.backtester import Backtester
 from polymarket_trader.engine.paper_trader import PaperTrader
+from polymarket_trader.strategies.arbitrage import BinaryArbitrageStrategy
 from polymarket_trader.strategies.mean_reversion import MeanReversionStrategy
 from polymarket_trader.strategies.momentum import MomentumStrategy
 from polymarket_trader.strategies.multi_market import DiversifiedValueStrategy
@@ -17,6 +19,7 @@ STRATEGIES = {
     "momentum": MomentumStrategy,
     "mean_reversion": MeanReversionStrategy,
     "diversified": DiversifiedValueStrategy,
+    "arbitrage": BinaryArbitrageStrategy,
 }
 
 
@@ -201,6 +204,24 @@ def cmd_paper_trade(args):
     trader.run_loop(max_iterations=args.max_cycles)
 
 
+def cmd_arb_scan(args):
+    """Run the binary arbitrage scanner on Bitcoin short-duration markets."""
+    client = PolymarketClient()
+
+    scanner = ArbScanner(
+        client=client,
+        starting_balance=args.balance,
+        min_edge_cents=args.min_edge,
+        position_size=args.position_size,
+        max_concurrent_arbs=args.max_arbs,
+        max_minutes_to_expiry=args.max_expiry,
+        poll_interval=args.poll_interval,
+        save_path=args.save_file,
+    )
+
+    scanner.run_loop(max_iterations=args.max_cycles)
+
+
 def cmd_list_strategies(args):
     """List available strategies."""
     print("\nAvailable strategies:\n")
@@ -210,14 +231,18 @@ def cmd_list_strategies(args):
     print(f"  {'momentum':<20} Follow trend using moving average crossover")
     print(f"  {'mean_reversion':<20} Bet on prices reverting to their mean (z-score)")
     print(f"  {'diversified':<20} Spread small bets across many underpriced markets")
+    print(f"  {'arbitrage':<20} Binary arb: buy YES+NO when combined cost < $1")
     print()
     print("Use --strategy <name> with backtest or paper-trade commands.")
-    print("Each strategy has tunable parameters via --param key=value.\n")
+    print("Each strategy has tunable parameters via --param key=value.")
+    print()
+    print("For the dedicated Bitcoin arb scanner, use the 'arb-scan' command.\n")
     print("Example parameters:")
     print("  threshold:       buy_below=0.3 sell_above=0.7 position_size=0.1")
     print("  momentum:        short_window=5 long_window=20 min_trend_strength=0.02")
     print("  mean_reversion:  window=20 entry_z=-1.5 exit_z=0.5")
     print("  diversified:     max_price=0.4 min_price=0.05 max_positions=20 per_position_size=50")
+    print("  arbitrage:       min_edge_cents=0.5 position_size=100 max_concurrent_arbs=20")
 
 
 def _build_strategy(args):
@@ -270,6 +295,9 @@ Examples:
 
   # Paper trade with live data
   %(prog)s paper-trade --strategy mean_reversion --balance 1000 --condition-ids <id1> <id2>
+
+  # Scan for Bitcoin binary arbitrage (YES+NO < $1.00)
+  %(prog)s arb-scan --balance 5000 --min-edge 0.5 --position-size 200
 """,
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -317,6 +345,21 @@ Examples:
     p_pt.add_argument("--max-cycles", type=int, default=None, help="Max polling cycles (None=infinite)")
     p_pt.add_argument("--save-file", default=None, help="File to save portfolio state")
     p_pt.set_defaults(func=cmd_paper_trade)
+
+    # ── arb-scan ──
+    p_arb = subparsers.add_parser(
+        "arb-scan",
+        help="Scan Bitcoin markets for binary arbitrage (YES+NO < $1)",
+    )
+    p_arb.add_argument("--balance", type=float, default=1000.0, help="Starting paper balance (USDC)")
+    p_arb.add_argument("--min-edge", type=float, default=0.5, help="Minimum edge in cents (default 0.5)")
+    p_arb.add_argument("--position-size", type=float, default=100.0, help="Dollars per arb opportunity")
+    p_arb.add_argument("--max-arbs", type=int, default=20, help="Max concurrent arb positions")
+    p_arb.add_argument("--max-expiry", type=int, default=15, help="Max minutes to market expiry")
+    p_arb.add_argument("--poll-interval", type=int, default=10, help="Seconds between scans")
+    p_arb.add_argument("--max-cycles", type=int, default=None, help="Max scan cycles (None=infinite)")
+    p_arb.add_argument("--save-file", default=None, help="File to save portfolio state")
+    p_arb.set_defaults(func=cmd_arb_scan)
 
     # ── strategies ──
     p_strat = subparsers.add_parser("strategies", help="List available strategies")
